@@ -12,7 +12,7 @@ from datetime import datetime
 # -----------------------------
 # CONFIG
 # -----------------------------
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+client = OpenAI(api_key=os.getenv("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"))
 USER_FILE = "users.json"
 MEMORY_FILE = "memory.json"
 
