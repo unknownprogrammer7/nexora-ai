@@ -90,6 +90,7 @@ def update_memory(username, user_input):
 def extract_text(file):
     if file is None:
         return ""
+        file_input = gr.File(label="Upload a file", file_types=[".pdf", ".docx", ".txt"])
     if file.name.endswith(".pdf"):
         reader = PdfReader(file.name)
         return "\n".join([p.extract_text() for p in reader.pages if p.extract_text()])
@@ -102,10 +103,14 @@ def extract_text(file):
 
 # -----------------------------
 # CHAT FUNCTION
-# -----------------------------
-def chat(user_message, history, username):
-    if history is None or not isinstance(history, list):
-        history = []
+# ------------------
+def chat(user_message, history, username, file=None):
+    # Extract text from file
+    file_text = extract_text(file)
+    if file_text:
+        user_message += "\n\nFile content:\n" + file_text
+
+    # rest of your chat code...
     if not username:
         username = "User"
 
