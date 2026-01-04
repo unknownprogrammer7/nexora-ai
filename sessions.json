@@ -1,0 +1,11 @@
+{}
+def save_session(username):
+    sessions = load_json("sessions.json")
+    sessions["last_user"] = username
+    save_json("sessions.json", sessions)
+sessions = load_json("sessions.json")
+username_state = sessions.get("last_user", "")
+if username_state:
+    # Auto-login user
+    login_panel.visible = False
+    chat_panel.visible = True
