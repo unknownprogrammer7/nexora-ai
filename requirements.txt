@@ -1,5 +1,3 @@
-gradio
-openai
 pypdf
 docx2txt
 pyttsx3
