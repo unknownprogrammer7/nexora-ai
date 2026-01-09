@@ -1,54 +1,49 @@
-/* ===== Global ===== */
-body {
-    background: #0f0f0f;
-    color: white;
-    font-family: system-ui, sans-serif;
+/* static/style.css */
+
+/* General background */
+body, .gradio-container {
+    background-color: #0f172a;
+    color: #e2e8f0;
+    font-family: "Inter", sans-serif;
 }
 
-/* ===== Chat area ===== */
+/* Chatbot area */
 #chatbot {
-    height: calc(100vh - 85px);
-    overflow-y: auto;
-    padding-bottom: 120px;
-}
-
-/* ===== Input bar ===== */
-.input-row {
-    position: fixed;
-    bottom: 0;
-    width: 100%;
-    background: #121212;
+    background-color: #1e293b;
+    border-radius: 12px;
     padding: 10px;
-    display: flex;
-    gap: 8px;
-    z-index: 100;
 }
 
-/* ===== Textbox ===== */
-textarea {
-    border-radius: 20px !important;
-    background: #1e1e1e !important;
-    color: white !important;
-    font-size: 16px !important;
-    padding: 12px !important;
+/* User input box */
+.input-row textarea {
+    background-color: #020617 !important;
+    color: #ffffff !important;
+    border-radius: 12px !important;
+    padding: 10px !important;
 }
 
-/* ===== Buttons ===== */
-button {
-    border-radius: 50% !important;
-    min-width: 44px;
-    min-height: 44px;
-    font-size: 18px;
-}
-
-/* ===== File upload ===== */
-input[type="file"] {
+/* Buttons */
+input[type="file"], button {
+    border-radius: 10px !important;
+    font-weight: bold;
+    background-color: #3b82f6;
     color: white;
 }
 
-/* ===== Mobile optimization ===== */
-@media (max-width: 600px) {
-    textarea {
-        font-size: 15px !important;
+input[type="file"]:hover, button:hover {
+    background-color: #2563eb;
+}
+
+/* Mobile responsiveness */
+@media only screen and (max-width: 768px) {
+    .input-row {
+        flex-direction: column;
+    }
+    .input-row textarea {
+        width: 100% !important;
+    }
+    .input-row button, .input-row input[type="file"] {
+        width: 100% !important;
+        margin-top: 5px;
     }
 }
