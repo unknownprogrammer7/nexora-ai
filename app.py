@@ -1,4 +1,4 @@
-import os, json
+import os, json, pickle, numpy as np
 from datetime import datetime
 import gradio as gr
 from fastapi import FastAPI, Request
@@ -8,166 +8,166 @@ from requests_oauthlib import OAuth2Session
 from openai import OpenAI
 from pypdf import PdfReader
 import docx2txt
-# vector memory logic
-import faiss, numpy as np, pickle
+import faiss
 
-VECTOR_FILE = "vector_store.pkl"
-DIM = 1536
-
-if os.path.exists(VECTOR_FILE):
-    index, texts = pickle.load(open(VECTOR_FILE, "rb"))
-else:
-    index = faiss.IndexFlatL2(DIM)
-    texts = []
-
-def embed(text):
-    return client.embeddings.create(
-        model="text-embedding-3-small",
-        input=text
-    ).data[0].embedding
-
-def save_vector_memory(text):
-    vec = np.array(embed(text)).astype("float32")
-    index.add(vec.reshape(1,-1))
-    texts.append(text)
-    pickle.dump((index, texts), open(VECTOR_FILE,"wb"))
-
-def recall_vector_memory(query):
-    if index.ntotal == 0:
-        return ""
-    q = np.array(embed(query)).astype("float32")
-    _, ids = index.search(q.reshape(1,-1), 2)
-    return "\n".join(texts[i] for i in ids[0])
-
-# ================= ENV =================
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
+# -----------------------------
+# CONFIG
+# -----------------------------
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 REDIRECT_URI = os.getenv("REDIRECT_URI")
 
-USER_FILE = "users.json"
+client = OpenAI(api_key=OPENAI_API_KEY)
+
 MEMORY_FILE = "memory.json"
+VECTOR_FILE = "vector_store.pkl"
+DIM = 1536
 
-for f in [USER_FILE, MEMORY_FILE]:
-    if not os.path.exists(f):
-        with open(f, "w") as fp:
-            json.dump({}, fp)
+if os.path.exists(MEMORY_FILE) == False:
+    with open(MEMORY_FILE,"w") as f:
+        json.dump({},f)
 
-# ================= HELPERS =================
-def load_json(f):
-    return json.load(open(f))
+if os.path.exists(VECTOR_FILE):
+    index, texts = pickle.load(open(VECTOR_FILE,"rb"))
+else:
+    index = faiss.IndexFlatL2(DIM)
+    texts = []
 
-def save_json(f, d):
-    json.dump(d, open(f, "w"), indent=2)
+# -----------------------------
+# HELPERS
+# -----------------------------
+def load_memory():
+    with open(MEMORY_FILE,"r") as f: return json.load(f)
 
-def ethics_guard(t):
-    banned = ["kill","bomb","hack","rape","suicide","weapon"]
-    return (False,"⚠️ Unsafe request.") if any(w in t.lower() for w in banned) else (True,"")
+def save_memory(data):
+    with open(MEMORY_FILE,"w") as f: json.dump(data,f,indent=2)
 
-def update_memory(u,t):
-    mem = load_json(MEMORY_FILE)
-    mem.setdefault(u,{})
-    if "my name is" in t.lower():
-        mem[u]["name"] = t.split("is")[-1].strip()
-    save_json(MEMORY_FILE, mem)
-    return mem[u]
+def ethics_guard(msg):
+    banned = ["kill","bomb","hack","rape","suicide","weapon","murder"]
+    return (False,"⚠️ Unsafe request.") if any(w in msg.lower() for w in banned) else (True,"")
+
+def update_memory(user, msg):
+    mem = load_memory()
+    mem.setdefault(user,{})
+    if "my name is" in msg.lower():
+        mem[user]["name"] = msg.split("is")[-1].strip()
+    save_memory(mem)
+    return mem[user]
 
 def extract_text(file):
     if not file: return ""
     if file.name.endswith(".pdf"):
         r = PdfReader(file.name)
-        return "\n".join(p.extract_text() for p in r.pages if p.extract_text())
+        return "\n".join([p.extract_text() for p in r.pages if p.extract_text()])
     if file.name.endswith(".docx"):
         return docx2txt.process(file.name)
     if file.name.endswith(".txt"):
         return file.read().decode()
     return ""
 
-# ================= FASTAPI AUTH =================
-app = FastAPI()
-from fastapi.staticfiles import StaticFiles
+def embed(text):
+    return np.array(client.embeddings.create(
+        model="text-embedding-3-small",
+        input=text
+    ).data[0].embedding).astype("float32")
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
-app.add_middleware(SessionMiddleware, secret_key="dexora-session")
+def save_vector_memory(text):
+    vec = embed(text)
+    index.add(vec.reshape(1,-1))
+    texts.append(text)
+    pickle.dump((index,texts),open(VECTOR_FILE,"wb"))
+
+def recall_vector_memory(query):
+    if index.ntotal == 0: return ""
+    q = embed(query)
+    _, ids = index.search(q.reshape(1,-1),2)
+    return "\n".join(texts[i] for i in ids[0])
+
+# -----------------------------
+# FASTAPI + Google Login
+# -----------------------------
+app = FastAPI()
+app.add_middleware(SessionMiddleware, secret_key="dexora-secret-key")
+
+AUTH_URI = "https://accounts.google.com/o/oauth2/auth"
+TOKEN_URI = "https://oauth2.googleapis.com/token"
+USERINFO_URI = "https://www.googleapis.com/oauth2/v1/userinfo"
 
 @app.get("/")
 async def root(req: Request):
     return RedirectResponse("/chat") if "user" in req.session else RedirectResponse("/login")
 
 @app.get("/login")
-async def login():
+async def login_page():
     oauth = OAuth2Session(GOOGLE_CLIENT_ID, redirect_uri=REDIRECT_URI,
-        scope=["openid","email","profile"])
-    auth,_ = oauth.authorization_url("https://accounts.google.com/o/oauth2/auth")
-    return RedirectResponse(auth)
+                          scope=["openid","email","profile"])
+    auth_url, _ = oauth.authorization_url(AUTH_URI, access_type="offline", prompt="select_account")
+    return RedirectResponse(auth_url)
 
 @app.get("/auth/google/callback")
-async def callback(req: Request):
+async def google_callback(req: Request):
     oauth = OAuth2Session(GOOGLE_CLIENT_ID, redirect_uri=REDIRECT_URI)
-    oauth.fetch_token("https://oauth2.googleapis.com/token",
-        client_secret=GOOGLE_CLIENT_SECRET,
-        authorization_response=str(req.url))
-    req.session["user"] = oauth.get(
-        "https://www.googleapis.com/oauth2/v1/userinfo").json()
+    oauth.fetch_token(TOKEN_URI,
+                      client_secret=GOOGLE_CLIENT_SECRET,
+                      authorization_response=str(req.url))
+    user_info = oauth.get(USERINFO_URI).json()
+    req.session["user"] = user_info
     return RedirectResponse("/chat")
 
-# ================= STREAMING CHAT =================
+# -----------------------------
+# CHAT FUNCTION
+# -----------------------------
 def chat(msg, history, user, file):
     if history is None: history=[]
     ok, warn = ethics_guard(msg)
     if not ok:
-        history.append((msg, warn))
-        return history, ""
+        history.append((msg,warn))
+        return history,""
 
-    mem = update_memory(user, msg)
-    if file:
-        msg += extract_text(file)
+    mem = update_memory(user,msg)
+    if file: msg += extract_text(file)
 
-    messages = [{"role":"system","content":"You are Dexora, a smart AI."}]
-    for u,a in history:
-        messages += [{"role":"user","content":u},{"role":"assistant","content":a}]
+    vector_mem = recall_vector_memory(msg)
+    if vector_mem: msg += f"\n[Memory Recall]: {vector_mem}"
+
+    save_vector_memory(msg)
+
+    messages = [{"role":"system","content":"You are Dexora AI, smart assistant."}]
+    for u,a in history: messages += [{"role":"user","content":u},{"role":"assistant","content":a}]
     messages.append({"role":"user","content":msg})
 
-    stream = client.chat.completions.create(
+    response = client.chat.completions.create(
         model="gpt-4o-mini",
-        messages=messages,
-        stream=True
+        messages=messages
     )
+    reply = response.choices[0].message.content
+    if "name" in mem: reply = f"{mem['name']}, {reply}"
+    history.append((msg,reply))
+    return history,""
 
-    reply = ""
-    for chunk in stream:
-        if chunk.choices[0].delta.content:
-            reply += chunk.choices[0].delta.content
-            yield history + [(msg, reply)], ""
-
-# ================Gradio No css
 # -----------------------------
-# GRADIO UI (NO CSS HERE)
+# GRADIO UI
 # -----------------------------
-with gr.Blocks() as app:
+with gr.Blocks() as chat_app:
     gr.Markdown("## 💬 Dexora AI")
 
     username = gr.State("User")
-
-    chatbot = gr.Chatbot(
-        elem_id="chatbot",
-        height=450
-    )
+    chatbot = gr.Chatbot(elem_id="chatbot",height=450)
 
     with gr.Row(elem_classes="input-row"):
-        msg = gr.Textbox(
-            placeholder="Message Dexora…",
-            show_label=False,
-            scale=8
-        )
-        send = gr.Button("➤", scale=1)
+        msg = gr.Textbox(placeholder="Message Dexora…",show_label=False,scale=8)
+        upload = gr.File(label="📎 Upload File",type="file",scale=1)
+        send = gr.Button("➤",scale=1)
 
-    send.click(chat, [msg, chatbot, username], [chatbot, msg])
-    msg.submit(chat, [msg, chatbot, username], [chatbot, msg])
+    send.click(chat,[msg,chatbot,username,upload],[chatbot,msg])
+    msg.submit(chat,[msg,chatbot,username,upload],[chatbot,msg])
 
 # -----------------------------
-# RUN
+# MOUNT GRADIO ON FASTAPI
 # -----------------------------
+app = gr.mount_gradio_app(app, chat_app, path="/chat")
+
 if __name__ == "__main__":
-    app.launch()
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT",8000)))
