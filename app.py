@@ -86,6 +86,9 @@ def extract_text(file):
 
 # ================= FASTAPI AUTH =================
 app = FastAPI()
+from fastapi.staticfiles import StaticFiles
+
+app.mount("/static", StaticFiles(directory="static"), name="static")
 app.add_middleware(SessionMiddleware, secret_key="dexora-session")
 
 @app.get("/")
@@ -147,6 +150,9 @@ background:#0f0f0f;padding:8px;border-top:1px solid #222}
 textarea{border-radius:18px!important;font-size:16px}
 button{border-radius:50%!important;width:46px;height:46px}
 """
+gr.HTML("""
+<link rel="manifest" href="/static/manifest.json">
+""")
 
 with gr.Blocks(css=css) as ui:
     gr.Markdown("## 🤖 Dexora")
