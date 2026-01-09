@@ -1,9 +1,10 @@
-faiss-cpu
-numpy
 fastapi
+uvicorn
 gradio
 openai
 requests-oauthlib
-python-multipart
+starlette
 pypdf
 docx2txt
+faiss-cpu
+numpy
