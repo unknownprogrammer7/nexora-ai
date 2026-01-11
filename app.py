@@ -192,6 +192,11 @@ with gr.Blocks() as chat_app:
         send = gr.Button("➤", scale=1)
     send.click(chat,[msg,chatbot,gr.Request(),upload],[chatbot,msg])
     msg.submit(chat,[msg,chatbot,gr.Request(),upload],[chatbot,msg])
+    history, _ = chat(msg, chatbot.value, username_state.value, upload)
+# Save updated history
+all_history = load_chat_history()
+all_history[username_state.value] = [{"user": u, "assistant": a} for u,a in history]
+save_chat_history(all_history)
 
 app = gr.mount_gradio_app(app, chat_app, path="/chat/ui")
 
