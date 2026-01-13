@@ -1,3 +1,4 @@
+itsdangerous
 fastapi
 uvicorn
 gradio
