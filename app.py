@@ -2,6 +2,7 @@ import os
 import json
 from datetime import datetime
 from fastapi import FastAPI, Request, UploadFile, File, Form
+from starlette.middleware.sessions import SessionMiddleware
 from fastapi.responses import RedirectResponse, HTMLResponse
 from starlette.middleware.sessions import SessionMiddleware
 from authlib.integrations.starlette_client import OAuth
