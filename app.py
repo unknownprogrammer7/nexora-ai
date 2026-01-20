@@ -120,8 +120,8 @@ async def home(request: Request):
             <title>Login - Nexora AI</title>
             <style>
               body { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; font-family: Arial, sans-serif; background-color: #f5f5f5; }
-              img { width: 200px; margin-bottom: 20px; }
-              button { padding: 10px 20px; font-size: 16px; cursor: pointer; border-radius: 8px; border: none; background-color: #4caf50; color: white; }
+              img { width: 2000px; margin-bottom: 200px; }
+              button { padding: 100px 200px; font-size: 160px; cursor: pointer; border-radius: 80px; border: none; background-color: #4caf50; color: white; }
               button:hover { background-color: #45a049; }
             </style>
         </head>
