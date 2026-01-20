@@ -4,14 +4,15 @@ import os
 import json
 from datetime import datetime
 from fastapi import FastAPI, Request, UploadFile, File, Form
-from starlette.middleware.sessions import SessionMiddleware
 from fastapi.responses import RedirectResponse, HTMLResponse
 from starlette.middleware.sessions import SessionMiddleware
+from fastapi.staticfiles import StaticFiles
 from authlib.integrations.starlette_client import OAuth
 from pypdf import PdfReader
 import docx2txt
 import uvicorn
 from openai import OpenAI
+import tempfile
 
 # =========================
 # CONFIG / ENV
@@ -32,8 +33,11 @@ app.add_middleware(
     SessionMiddleware,
     secret_key=SESSION_SECRET,
     same_site="lax",
-    https_only=True
+    https_only=False  # False for local testing
 )
+
+# Mount static folder
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # =========================
 # GOOGLE OAUTH
@@ -49,7 +53,7 @@ oauth.register(
 
 # =========================
 # HELPERS
-# ===============
+# =========================
 def load_chats():
     if not os.path.exists(CHAT_FILE):
         return {}
@@ -68,14 +72,18 @@ def read_file(file: UploadFile):
         reader = PdfReader(file.file)
         return "\n".join(p.extract_text() or "" for p in reader.pages)
     if file.filename.endswith(".docx"):
-        return docx2txt.process(file.file)
+        # Save temporarily to read docx
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tmp:
+            tmp.write(file.file.read())
+            tmp_path = tmp.name
+        text = docx2txt.process(tmp_path)
+        os.remove(tmp_path)
+        return text
     if file.filename.endswith(".txt"):
         return file.file.read().decode("utf-8")
     return "Unsupported file"
 
-# Dummy role system
 def get_role(email):
-    # first user is admin, others user
     return "admin" if email.endswith("@admin.com") else "user"
 
 # =========================
@@ -100,9 +108,11 @@ async def admin_dashboard(request: Request):
 @app.get("/")
 async def home(request: Request):
     user = request.session.get("user")
-
     if not user or "email" not in user:
-        return HTMLResponse(""" ... your login HTML ... """)
+        return HTMLResponse("""
+        <h2>Login</h2>
+        <a href="/login"><button>Login with Google</button></a>
+        """)
 
     chats = load_chats().get(user["email"], [])
     chat_html = "".join(
@@ -130,11 +140,10 @@ async def home(request: Request):
     </body>
     </html>
     """)
-    
+
 @app.post("/chat")
 async def chat(request: Request, message: str = Form(...)):
     user = request.session.get("user")
-
     if not user or "email" not in user:
         request.session.clear()
         return RedirectResponse("/login", status_code=302)
@@ -149,25 +158,9 @@ async def chat(request: Request, message: str = Form(...)):
         )
         reply = r.choices[0].message.content
     except Exception as e:
-        reply = "⚠️ AI service unavailable. Try again later."
+        logging.error(f"OpenAI error: {e}")
+        reply = f"⚠️ AI service unavailable. Error: {e}"
 
-    chats[user["email"]].append({
-        "user": message,
-        "assistant": reply,
-        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    })
-
-    save_chats(chats)
-    return RedirectResponse("/", status_code=302)
-
-    # Call OpenAI GPT
-    r = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": message}]
-    )
-    reply = r.choices[0].message.content
-
-    # Save chat
     chats[user["email"]].append({
         "user": message,
         "assistant": reply,
@@ -179,7 +172,10 @@ async def chat(request: Request, message: str = Form(...)):
 
 @app.post("/upload")
 async def upload(request: Request, file: UploadFile = File(...)):
-    user = request.session["user"]
+    user = request.session.get("user")
+    if not user or "email" not in user:
+        return RedirectResponse("/login", status_code=302)
+
     text = read_file(file)
     chats = load_chats()
     chats.setdefault(user["email"], [])
@@ -193,13 +189,12 @@ async def upload(request: Request, file: UploadFile = File(...)):
 
 @app.get("/login")
 async def login(request: Request):
-    return await oauth.google.authorize_redirect(request, request.url_for("auth")) 
+    return await oauth.google.authorize_redirect(request, request.url_for("auth"))
 
 @app.get("/auth")
 async def auth(request: Request):
     token = await oauth.google.authorize_access_token(request)
-
-    user = token.get("userinfo")
+    user = await oauth.google.parse_id_token(request, token)
     if not user:
         return HTMLResponse("Login failed: No user info", status_code=400)
 
@@ -208,9 +203,7 @@ async def auth(request: Request):
         "name": user.get("name"),
         "picture": user.get("picture")
     }
-
     return RedirectResponse("/", status_code=302)
-
 
 @app.get("/logout")
 async def logout(request: Request):
@@ -221,4 +214,4 @@ async def logout(request: Request):
 # START SERVER
 # =========================
 if __name__ == "__main__":
-    uvicorn.run("app:app", host="0.0.0.0", port=int(os.getenv("PORT", 10000)))
+    uvicorn.run("app:app", host="0.0.0.0", port=int(os.getenv("PORT", 10000)), reload=True)
